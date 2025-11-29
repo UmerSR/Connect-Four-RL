@@ -34,6 +34,8 @@ class ConnectFourEnv(gym.Env):
         illegal_move_penalty: float = -1.0,
         win_reward: float = 1.0,
         draw_reward: float = 0.0,
+        block_reward: float = 0.1,
+        threat_reward: float = 0.05,
         seed: int | None = None,
     ):
         super().__init__()
@@ -44,6 +46,8 @@ class ConnectFourEnv(gym.Env):
         self.illegal_move_penalty = illegal_move_penalty
         self.win_reward = win_reward
         self.draw_reward = draw_reward
+        self.block_reward = block_reward
+        self.threat_reward = threat_reward
 
         # 0 = empty, 1 = player 0, 2 = player 1
         self.board = np.zeros((self.rows, self.cols), dtype=np.int8)
@@ -90,6 +94,12 @@ class ConnectFourEnv(gym.Env):
 
         row = self._get_drop_row(action)
         piece = self.current_player + 1  # 1 or 2
+
+        # Rewards shaping pre-drop (threat/block)
+        opp_piece = 2 if piece == 1 else 1
+        prev_opp_wins = self._count_immediate_wins(opp_piece)
+        prev_my_wins = self._count_immediate_wins(piece)
+
         self.board[row, action] = piece
 
         if self._check_winner(piece):
@@ -107,6 +117,14 @@ class ConnectFourEnv(gym.Env):
             terminated = False
             truncated = False
             info = {}
+
+            # Dense shaping
+            opp_wins = self._count_immediate_wins(opp_piece)
+            my_wins = self._count_immediate_wins(piece)
+            blocked = max(0, prev_opp_wins - opp_wins)
+            new_threats = max(0, my_wins - prev_my_wins)
+            reward += self.block_reward * blocked
+            reward += self.threat_reward * new_threats
 
         self.current_player = 1 - self.current_player
 
@@ -210,3 +228,20 @@ class ConnectFourEnv(gym.Env):
         for r in range(self.rows):
             rows.append(" ".join(chars[int(x)] for x in self.board[r]))
         return "\n".join(rows)
+
+    def _count_immediate_wins(self, piece: int) -> int:
+        """
+        Count how many legal columns would produce an immediate win
+        for the given piece if played now.
+        """
+        wins = 0
+        for col in self._legal_moves():
+            try:
+                row = self._get_drop_row(col)
+            except ValueError:
+                continue
+            self.board[row, col] = piece
+            if self._check_winner(piece):
+                wins += 1
+            self.board[row, col] = 0
+        return wins
