@@ -152,6 +152,13 @@ class ConnectFourEnv(gym.Env):
         """
         return [c for c in range(self.cols) if self.board[0, c] == 0]
 
+    def action_masks(self):
+        """
+        Compatibility helper for mask-aware algorithms (e.g., sb3-contrib MaskablePPO).
+        Returns a boolean mask of legal actions.
+        """
+        return self._get_obs()["action_mask"].astype(bool)
+
     def _get_drop_row(self, col):
         """
         Find the lowest empty row in the given column.

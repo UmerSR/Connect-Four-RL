@@ -3,3 +3,8 @@ pygame
 numpy
 torch
 pytest
+stable-baselines3[extra]
+sb3-contrib
+pandas
+matplotlib
+seaborn
