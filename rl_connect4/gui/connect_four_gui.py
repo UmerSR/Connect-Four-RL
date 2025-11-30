@@ -11,9 +11,9 @@ COLOR_P1 = (220, 60, 60)   # Player 1 discs
 COLOR_P2 = (250, 210, 50)  # Player 2 discs
 COLOR_TEXT = (230, 230, 230)
 
-SQUARE_SIZE = 80
-PADDING_TOP = 80  # Space for text/status
-MENU_HEIGHT = 200  # Space for opponent select menu
+SQUARE_SIZE = 90
+PADDING_TOP = 100  # Space for text/status
+MENU_HEIGHT = 220  # Space for opponent select menu and spacing
 
 
 def draw_board(screen, env, font, status_text):
@@ -60,8 +60,8 @@ def main():
     cols = env.cols
     rows = env.rows
 
-    width = cols * SQUARE_SIZE
-    height = rows * SQUARE_SIZE + PADDING_TOP + MENU_HEIGHT
+    width = cols * SQUARE_SIZE + 60  # add margin for breathing room
+    height = rows * SQUARE_SIZE + PADDING_TOP + MENU_HEIGHT + 40
     screen = pygame.display.set_mode((width, height))
 
     font = pygame.font.SysFont("Arial", 24)
@@ -100,20 +100,22 @@ def main():
         menu_surface = pygame.Surface((width, MENU_HEIGHT))
         menu_surface.fill((40, 40, 40))
         options = [
-            ("Human", None, None),
-            ("Random", "random", 2),
-            ("Heuristic", "heuristic", 2),
-            ("PPO", "ppo", 2),
+            ("Human", None, None, None),
+            ("Random", "random", 2, None),
+            ("Heuristic", "heuristic", 2, None),
+            ("PPO", "ppo", 2, "PPO/ppo.pth"),
+            ("PPO_pool", "ppo_pool", 2, "PPO/ppo_pool.pth"),
+            ("PPO_dense", "ppo_dense", 2, "PPO/ppo_dense.pth"),
         ]
         btns = []
-        padding = 20
+        padding = 25
         btn_width = (width - padding * (len(options) + 1)) // len(options)
-        btn_height = 60
+        btn_height = 70
         y = 20
-        for i, (label, kind, ai_side) in enumerate(options):
+        for i, (label, kind, ai_side, model_path) in enumerate(options):
             x = padding + i * (btn_width + padding)
             rect = pygame.Rect(x, y, btn_width, btn_height)
-            btns.append((rect, label, kind, ai_side))
+            btns.append((rect, label, kind, ai_side, model_path))
             pygame.draw.rect(menu_surface, (70, 70, 120), rect, border_radius=8)
             text = menu_font.render(label, True, COLOR_TEXT)
             menu_surface.blit(text, (rect.x + (rect.width - text.get_width()) // 2,
@@ -122,8 +124,8 @@ def main():
         side_btns = []
         side_opts = [("You: Player 1 (Red)", 1), ("You: Player 2 (Yellow)", 2)]
         side_width = (width - padding * (len(side_opts) + 1)) // len(side_opts)
-        side_height = 50
-        y2 = y + btn_height + 30
+        side_height = 60
+        y2 = y + btn_height + 40
         for i, (label, side) in enumerate(side_opts):
             x = padding + i * (side_width + padding)
             rect = pygame.Rect(x, y2, side_width, side_height)
@@ -180,17 +182,15 @@ def main():
                 mx, my = event.pos
                 # Menu selection
                 if my < MENU_HEIGHT:
-                    for rect, label, kind, ai_side in menu_buttons:
+                    for rect, label, kind, ai_side, model_path in menu_buttons:
                         if rect.collidepoint(mx, my):
                             from agents.opponents import get_opponent
                             selected = None
                             try:
                                 if kind is None:
                                     selected = None
-                                elif kind == "ppo":
-                                    selected = get_opponent("ppo", model_path="ppo_implementation/ppo_connect4_8020.pth")
                                 else:
-                                    selected = get_opponent(kind)
+                                    selected = get_opponent(kind, model_path=model_path)
                                 reset_game(selected, ai_side, label)
                             except Exception as e:
                                 print(f"Failed to load opponent {label}: {e}")
