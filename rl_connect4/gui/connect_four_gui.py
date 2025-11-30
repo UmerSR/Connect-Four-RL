@@ -13,18 +13,18 @@ COLOR_TEXT = (230, 230, 230)
 
 SQUARE_SIZE = 80
 PADDING_TOP = 80  # Space for text/status
+MENU_HEIGHT = 200  # Space for opponent select menu
 
 
 def draw_board(screen, env, font, status_text):
     rows, cols = env.rows, env.cols
-    screen.fill(COLOR_BG)
+    board_top = MENU_HEIGHT + PADDING_TOP
 
     # Draw status text
     text_surface = font.render(status_text, True, COLOR_TEXT)
-    screen.blit(text_surface, (10, 10))
+    screen.blit(text_surface, (10, MENU_HEIGHT + 10))
 
     # Draw grid + discs
-    board_top = PADDING_TOP
     for c in range(cols):
         for r in range(rows):
             # Cell background (board)
@@ -53,7 +53,7 @@ def draw_board(screen, env, font, status_text):
 
 def main():
     pygame.init()
-    pygame.display.set_caption("Connect Four (Human vs Human)")
+    pygame.display.set_caption("Connect Four")
     env = ConnectFourEnv()
     env.reset()
 
@@ -61,37 +61,112 @@ def main():
     rows = env.rows
 
     width = cols * SQUARE_SIZE
-    height = rows * SQUARE_SIZE + PADDING_TOP
+    height = rows * SQUARE_SIZE + PADDING_TOP + MENU_HEIGHT
     screen = pygame.display.set_mode((width, height))
 
     font = pygame.font.SysFont("Arial", 24)
+    menu_font = pygame.font.SysFont("Arial", 24)
 
     running = True
     game_over = False
     last_info = {}
+    last_message = ""
     clock = pygame.time.Clock()
+    opponent = None
+    opponent_name = "Human vs Human"
+    ai_player = None  # 1 or 2 for which side AI controls
+    human_player = 1  # default human side
 
     def status_line():
-        nonlocal game_over, last_info
+        nonlocal game_over, last_info, last_message
+        prefix = f"Mode: {opponent_name} | You are Player {human_player}"
         if game_over:
             if "winner" in last_info:
                 winner = last_info["winner"]
-                return f"Game over: Player {winner + 1} wins! Press R to restart."
+                return f"{prefix} | Game over: Player {winner + 1} wins! Press R to restart."
             elif "draw" in last_info:
-                return "Game over: Draw. Press R to restart."
+                return f"{prefix} | Game over: Draw. Press R to restart."
             elif "illegal_move" in last_info:
-                return "Illegal move! Game over. Press R to restart."
+                return f"{prefix} | Illegal move! Game over. Press R to restart."
             else:
-                return "Game over. Press R to restart."
+                return f"{prefix} | Game over. Press R to restart."
         else:
-            # current_player has already been flipped after last move,
-            # so this is the player who is about to play.
-            return f"Player {env.current_player + 1}'s turn"
+            turn_text = f"{prefix} | Player {env.current_player + 1}'s turn"
+            if last_message:
+                return f"{turn_text} | {last_message}"
+            return turn_text
+
+    def draw_menu():
+        menu_surface = pygame.Surface((width, MENU_HEIGHT))
+        menu_surface.fill((40, 40, 40))
+        options = [
+            ("Human", None, None),
+            ("Random", "random", 2),
+            ("Heuristic", "heuristic", 2),
+            ("PPO", "ppo", 2),
+        ]
+        btns = []
+        padding = 20
+        btn_width = (width - padding * (len(options) + 1)) // len(options)
+        btn_height = 60
+        y = 20
+        for i, (label, kind, ai_side) in enumerate(options):
+            x = padding + i * (btn_width + padding)
+            rect = pygame.Rect(x, y, btn_width, btn_height)
+            btns.append((rect, label, kind, ai_side))
+            pygame.draw.rect(menu_surface, (70, 70, 120), rect, border_radius=8)
+            text = menu_font.render(label, True, COLOR_TEXT)
+            menu_surface.blit(text, (rect.x + (rect.width - text.get_width()) // 2,
+                                     rect.y + (rect.height - text.get_height()) // 2))
+        # Human side buttons
+        side_btns = []
+        side_opts = [("You: Player 1 (Red)", 1), ("You: Player 2 (Yellow)", 2)]
+        side_width = (width - padding * (len(side_opts) + 1)) // len(side_opts)
+        side_height = 50
+        y2 = y + btn_height + 30
+        for i, (label, side) in enumerate(side_opts):
+            x = padding + i * (side_width + padding)
+            rect = pygame.Rect(x, y2, side_width, side_height)
+            side_btns.append((rect, label, side))
+            pygame.draw.rect(menu_surface, (90, 90, 140), rect, border_radius=8)
+            text = menu_font.render(label, True, COLOR_TEXT)
+            menu_surface.blit(text, (rect.x + (rect.width - text.get_width()) // 2,
+                                     rect.y + (rect.height - text.get_height()) // 2))
+        return menu_surface, btns, side_btns
+
+    menu_surface, menu_buttons, side_buttons = draw_menu()
+
+    def reset_game(selected_opponent, ai_side, opponent_label):
+        nonlocal opponent, opponent_name, ai_player, game_over, last_info, last_message
+        opponent = selected_opponent
+        opponent_name = opponent_label
+        ai_player = ai_side
+        if opponent is not None:
+            ai_player = 1 if human_player == 2 else 2
+        env.reset()
+        game_over = False
+        last_info = {}
+        last_message = f"You are Player {human_player}"
+        draw_board(screen, env, font, status_line())
+
+    def set_human_side(side: int):
+        nonlocal human_player, ai_player, opponent, opponent_name, last_message
+        human_player = side
+        if opponent is not None:
+            ai_player = 1 if human_player == 2 else 2
+        else:
+            ai_player = None
+            opponent_name = "Human vs Human"
+        last_message = f"You are Player {human_player}"
 
     draw_board(screen, env, font, status_line())
 
     while running:
         clock.tick(30)
+
+        screen.fill(COLOR_BG)
+        screen.blit(menu_surface, (0, 0))
+        draw_board(screen, env, font, status_line())
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -99,21 +174,66 @@ def main():
 
             # Restart game
             if event.type == pygame.KEYDOWN and event.key == pygame.K_r:
-                env.reset()
-                game_over = False
-                last_info = {}
-                draw_board(screen, env, font, status_line())
+                reset_game(opponent, ai_player, opponent_name)
 
-            # Mouse click -> choose column (for human players)
-            if event.type == pygame.MOUSEBUTTONDOWN and not game_over:
-                x, y = event.pos
-                if y >= PADDING_TOP:
-                    col = x // SQUARE_SIZE
+            if event.type == pygame.MOUSEBUTTONDOWN:
+                mx, my = event.pos
+                # Menu selection
+                if my < MENU_HEIGHT:
+                    for rect, label, kind, ai_side in menu_buttons:
+                        if rect.collidepoint(mx, my):
+                            from agents.opponents import get_opponent
+                            selected = None
+                            try:
+                                if kind is None:
+                                    selected = None
+                                elif kind == "ppo":
+                                    selected = get_opponent("ppo", model_path="ppo_implementation/ppo_connect4_8020.pth")
+                                else:
+                                    selected = get_opponent(kind)
+                                reset_game(selected, ai_side, label)
+                            except Exception as e:
+                                print(f"Failed to load opponent {label}: {e}")
+                    for rect, label, side in side_buttons:
+                        if rect.collidepoint(mx, my):
+                            set_human_side(side)
+                            reset_game(opponent, ai_player, opponent_name)
+                    continue
+
+                # Human move
+                if not game_over and my >= MENU_HEIGHT:
+                    col = mx // SQUARE_SIZE
                     if 0 <= col < cols:
-                        _, reward, terminated, truncated, info = env.step(col)
-                        game_over = terminated or truncated
-                        last_info = info
-                        draw_board(screen, env, font, status_line())
+                        human_turn = ai_player is None or (env.current_player + 1) != ai_player
+                        if human_turn:
+                            legal = env._legal_moves()
+                            if col not in legal:
+                                last_message = "Column is full. Choose another."
+                            else:
+                                _, reward, terminated, truncated, info = env.step(col)
+                                game_over = terminated or truncated
+                                last_info = info
+                                last_message = ""
+
+        # AI move if applicable
+        if not game_over and opponent is not None:
+            ai_turn = ai_player is not None and (env.current_player + 1) == ai_player
+            if ai_turn:
+                legal = env._legal_moves()
+                if not legal:
+                    game_over = True
+                    last_info = {"illegal_move": True}
+                else:
+                    col = opponent.select_action(env)
+                    if col not in legal:
+                        # Fallback: pick a legal move
+                        col = legal[0]
+                    _, reward, terminated, truncated, info = env.step(col)
+                    game_over = terminated or truncated
+                    last_info = info
+                    last_message = ""
+
+        pygame.display.flip()
 
     pygame.quit()
 

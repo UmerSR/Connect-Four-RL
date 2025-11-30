@@ -10,6 +10,8 @@ python -m venv .venv
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 python rl_connect4/main.py  # launch human vs human GUI
+
+GUI now supports opponent selection (menu at top): Human vs Human, Random, Heuristic, and PPO (loads `ppo_implementation/ppo_connect4_8020.pth` by default).
 ```
 
 ## Environment (`envs/connect_four_env.py`)
