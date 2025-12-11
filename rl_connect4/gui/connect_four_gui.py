@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pygame
 
 from envs.connect_four_env import ConnectFourEnv
@@ -14,6 +16,11 @@ COLOR_TEXT = (230, 230, 230)
 SQUARE_SIZE = 90
 PADDING_TOP = 100  # Space for text/status
 MENU_HEIGHT = 220  # Space for opponent select menu and spacing
+
+ROOT_DIR = Path(__file__).resolve().parent.parent.parent
+ARTIFACTS_DIR = ROOT_DIR / "artifacts"
+PPO_DIR = ARTIFACTS_DIR / "ppo"
+DQN_DIR = ARTIFACTS_DIR / "dqn"
 
 
 def draw_board(screen, env, font, status_text):
@@ -99,13 +106,18 @@ def main():
     def draw_menu():
         menu_surface = pygame.Surface((width, MENU_HEIGHT))
         menu_surface.fill((40, 40, 40))
+        ppo_model = PPO_DIR / "ppo.pth"
+        ppo_pool_model = PPO_DIR / "ppo_pool.pth"
+        ppo_dense_model = PPO_DIR / "ppo_dense.pth"
+        dqn_model = DQN_DIR / "dqn_connect4.pth"  # torch-only fallback; zip works if SB3 is installed
         options = [
             ("Human", None, None, None),
             ("Random", "random", 2, None),
             ("Heuristic", "heuristic", 2, None),
-            ("PPO", "ppo", 2, "PPO/ppo.pth"),
-            ("PPO_pool", "ppo_pool", 2, "PPO/ppo_pool.pth"),
-            ("PPO_dense", "ppo_dense", 2, "PPO/ppo_dense.pth"),
+            ("PPO", "ppo", 2, ppo_model),
+            ("PPO_pool", "ppo_pool", 2, ppo_pool_model),
+            ("PPO_dense", "ppo_dense", 2, ppo_dense_model),
+            ("DQN", "dqn", 2, dqn_model),
         ]
         btns = []
         padding = 25
