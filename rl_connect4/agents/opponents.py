@@ -19,6 +19,10 @@ try:
 except Exception:  # pragma: no cover - optional dependency
     DQN = None
 
+try:
+    import torch.nn as nn
+except Exception:
+    pass
 
 class BaseOpponent(ABC):
     @abstractmethod
@@ -184,6 +188,60 @@ class DQNOpponent(BaseOpponent):
         return int(action)
 
 
+class ReinforceOpponent(BaseOpponent):
+    """
+    Simple REINFORCE-style policy loaded from a saved state_dict.
+    Assumes the same architecture used in the notebooks: 3xHxW input, conv stack -> 512 -> logits.
+    """
+
+    class _PolicyNet(nn.Module):
+        def __init__(self, rows: int = 6, cols: int = 7, hidden_dim: int = 512):
+            super().__init__()
+            self.rows, self.cols = rows, cols
+            self.cnn = nn.Sequential(
+                nn.Conv2d(3, 32, kernel_size=3, padding=1),
+                nn.ReLU(),
+                nn.Conv2d(32, 64, kernel_size=3, padding=1),
+                nn.ReLU(),
+                nn.Conv2d(64, 64, kernel_size=3, padding=1),
+                nn.ReLU(),
+                nn.Flatten(),
+            )
+            with torch.no_grad():
+                dummy = torch.zeros(1, 3, rows, cols)
+                n_flat = self.cnn(dummy).shape[1]
+            self.linear = nn.Sequential(
+                nn.Linear(n_flat, hidden_dim),
+                nn.ReLU(),
+                nn.Linear(hidden_dim, cols),
+            )
+
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            return self.linear(self.cnn(x))
+
+    def __init__(self, model_path: str | Path, device: str = "cpu"):
+        if torch is None:
+            raise ImportError("torch is required for REINFORCE opponent.")
+        self.device = torch.device(device)
+        model_path = Path(model_path)
+        if not model_path.exists():
+            raise FileNotFoundError(f"REINFORCE model not found: {model_path}")
+        self.policy = self._PolicyNet().to(self.device)
+        state = torch.load(model_path, map_location=self.device)
+        self.policy.load_state_dict(state, strict=False)
+        self.policy.eval()
+
+    def select_action(self, env: ConnectFourEnv) -> int:
+        obs_chw, legal_mask = _build_obs_hw3(env)
+        obs_t = torch.tensor(obs_chw).float().unsqueeze(0).to(self.device)
+        mask_t = torch.tensor(legal_mask, device=self.device)
+        with torch.no_grad():
+            logits = self.policy(obs_t)
+            logits = logits.masked_fill(mask_t == 0, -1e9)
+            action = torch.argmax(logits, dim=1).item()
+        return int(action)
+
+
 def get_opponent(kind: str, model_path: Optional[str] = None, device: str = "cpu") -> BaseOpponent:
     kind = kind.lower()
     if kind == "random":
@@ -198,4 +256,8 @@ def get_opponent(kind: str, model_path: Optional[str] = None, device: str = "cpu
         if not model_path:
             raise ValueError("model_path required for DQN opponent")
         return DQNOpponent(model_path=model_path, device=device)
+    if kind in ("reinforce", "reinforce_ts", "reinforce_manual", "reinforce_tianshou"):
+        if not model_path:
+            raise ValueError("model_path required for REINFORCE opponent")
+        return ReinforceOpponent(model_path=model_path, device=device)
     raise ValueError(f"Unknown opponent type: {kind}")
