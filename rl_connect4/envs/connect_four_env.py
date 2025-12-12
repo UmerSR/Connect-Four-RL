@@ -31,8 +31,8 @@ class ConnectFourEnv(gym.Env):
         cols: int = 7,
         connect_n: int = 4,
         render_mode: str | None = None,
-        illegal_move_penalty: float = -1.0,
-        win_reward: float = 1.0,
+        illegal_move_penalty: float = -30.0,
+        win_reward: float = 40.0,
         draw_reward: float = 0.0,
         block_reward: float = 0.1,
         threat_reward: float = 0.05,
@@ -48,6 +48,7 @@ class ConnectFourEnv(gym.Env):
         self.draw_reward = draw_reward
         self.block_reward = block_reward
         self.threat_reward = threat_reward
+        self.loss_reward = -30.0  # terminal loss (from the mover's perspective)
 
         # 0 = empty, 1 = player 0, 2 = player 1
         self.board = np.zeros((self.rows, self.cols), dtype=np.int8)
@@ -72,6 +73,16 @@ class ConnectFourEnv(gym.Env):
         self.action_space = spaces.Discrete(self.cols)
         self.np_random, _ = gym.utils.seeding.np_random(seed)
 
+        # Precompute winning line coordinates for fast winner checks
+        self._winning_lines = self._precompute_winning_lines()
+        # Fixed directions used for reward shaping
+        self._reward_directions = (
+            (0, 1),   # right
+            (1, 0),   # down
+            (1, 1),   # down-right
+            (-1, 1),  # up-right
+        )
+
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
         if seed is not None:
@@ -83,10 +94,11 @@ class ConnectFourEnv(gym.Env):
         return observation, info
 
     def step(self, action):
-        legal_moves = self._legal_moves()
-
-        if action not in legal_moves:
-            reward = float(self.illegal_move_penalty)
+        legal_mask = self._legal_mask()
+        legal_cols = np.flatnonzero(legal_mask)
+        if action not in legal_cols:
+            # Treat illegal move as a terminal loss
+            reward = float(self.loss_reward)
             terminated = True
             truncated = False
             info = {"illegal_move": True}
@@ -95,36 +107,25 @@ class ConnectFourEnv(gym.Env):
         row = self._get_drop_row(action)
         piece = self.current_player + 1  # 1 or 2
 
-        # Rewards shaping pre-drop (threat/block)
-        opp_piece = 2 if piece == 1 else 1
-        prev_opp_wins = self._count_immediate_wins(opp_piece)
-        prev_my_wins = self._count_immediate_wins(piece)
-
         self.board[row, action] = piece
 
         if self._check_winner(piece):
             reward = float(self.win_reward)
             terminated = True
             truncated = False
-            info = {"winner": self.current_player}
-        elif not self._legal_moves():  # draw (board full, no legal moves)
+            info = {"winner": self.current_player, "loser_reward": float(self.loss_reward)}
+        elif not self._legal_mask().any():  # draw (board full, no legal moves)
             reward = float(self.draw_reward)
             terminated = True
             truncated = False
             info = {"draw": True}
         else:
             reward = 0.0
+            reward += self._compute_line_reward(piece)
+            reward += self._compute_column_reward(action)
             terminated = False
             truncated = False
             info = {}
-
-            # Dense shaping
-            opp_wins = self._count_immediate_wins(opp_piece)
-            my_wins = self._count_immediate_wins(piece)
-            blocked = max(0, prev_opp_wins - opp_wins)
-            new_threats = max(0, my_wins - prev_my_wins)
-            reward += self.block_reward * blocked
-            reward += self.threat_reward * new_threats
 
         self.current_player = 1 - self.current_player
 
@@ -154,13 +155,12 @@ class ConnectFourEnv(gym.Env):
         cur = self.current_player + 1
         opp = 2 if cur == 1 else 1
 
-        cur_plane = (self.board == cur).astype(np.int8)
-        opp_plane = (self.board == opp).astype(np.int8)
+        board = self.board
+        cur_plane = (board == cur).astype(np.int8)
+        opp_plane = (board == opp).astype(np.int8)
         obs = np.stack([cur_plane, opp_plane], axis=-1)
 
-        mask = np.zeros(self.cols, dtype=np.int8)
-        for c in self._legal_moves():
-            mask[c] = 1
+        mask = self._legal_mask()
 
         return {"observation": obs, "action_mask": mask}
 
@@ -168,7 +168,7 @@ class ConnectFourEnv(gym.Env):
         """
         A move is legal if the top cell of the column is empty.
         """
-        return [c for c in range(self.cols) if self.board[0, c] == 0]
+        return list(np.flatnonzero(self._legal_mask()))
 
     def action_masks(self):
         """
@@ -191,19 +191,10 @@ class ConnectFourEnv(gym.Env):
         Check horizontal, vertical and both diagonal directions for connect_n
         of the given 'piece' value (1 or 2).
         """
-        directions = [
-            (0, 1),   # horizontal
-            (1, 0),   # vertical
-            (1, 1),   # diag down-right
-            (-1, 1),  # diag up-right
-        ]
-        for r in range(self.rows):
-            for c in range(self.cols):
-                if self.board[r, c] != piece:
-                    continue
-                for dr, dc in directions:
-                    if self._count_direction(r, c, dr, dc, piece) >= self.connect_n:
-                        return True
+        board = self.board
+        for line in self._winning_lines:
+            if all(board[r, c] == piece for r, c in line):
+                return True
         return False
 
     def _count_direction(self, r, c, dr, dc, piece):
@@ -235,13 +226,92 @@ class ConnectFourEnv(gym.Env):
         for the given piece if played now.
         """
         wins = 0
-        for col in self._legal_moves():
-            try:
-                row = self._get_drop_row(col)
-            except ValueError:
-                continue
+        legal_mask = self._legal_mask()
+        for col in np.flatnonzero(legal_mask):
+            row = self._get_drop_row(col)
             self.board[row, col] = piece
             if self._check_winner(piece):
                 wins += 1
             self.board[row, col] = 0
         return wins
+
+    def _compute_line_reward(self, piece: int) -> float:
+        """
+        Reward contiguous lines of the given piece:
+            length 1 -> +1
+            length 2 -> +2
+            length 3 -> +6
+        Counts horizontal, vertical, diag down-right, diag up-right.
+        Avoids double-counting by only starting runs where the previous cell
+        in that direction is out of bounds or a different piece.
+        """
+        reward = 0.0
+        board = self.board
+        rows = self.rows
+        cols = self.cols
+        for r in range(rows):
+            for c in range(cols):
+                if board[r, c] != piece:
+                    continue
+                for dr, dc in self._reward_directions:
+                    prev_r, prev_c = r - dr, c - dc
+                    if 0 <= prev_r < rows and 0 <= prev_c < cols and board[prev_r, prev_c] == piece:
+                        continue  # not the start of a run
+                    length = 0
+                    rr, cc = r, c
+                    while 0 <= rr < rows and 0 <= cc < cols and board[rr, cc] == piece:
+                        length += 1
+                        rr += dr
+                        cc += dc
+                    if length == 1:
+                        reward += 1.0
+                    elif length == 2:
+                        reward += 2.0
+                    elif length == 3:
+                        reward += 6.0
+        return reward
+
+    def _compute_column_reward(self, col: int) -> float:
+        """
+        Column-centric bonus per Taylor & Stella (2024):
+            columns 1 or 5 (0-based) -> +1
+            columns 2 or 4           -> +2
+            column 3                 -> +4
+        """
+        if col in (1, 5):
+            return 1.0
+        if col in (2, 4):
+            return 2.0
+        if col == 3:
+            return 4.0
+        return 0.0
+
+    def _precompute_winning_lines(self):
+        """
+        Precompute all connect_n line coordinate sets for fast winner checks.
+        """
+        lines = []
+        r, c, n = self.rows, self.cols, self.connect_n
+        # Horizontal
+        for row in range(r):
+            for col in range(c - n + 1):
+                lines.append([(row, col + k) for k in range(n)])
+        # Vertical
+        for row in range(r - n + 1):
+            for col in range(c):
+                lines.append([(row + k, col) for k in range(n)])
+        # Diagonal down-right
+        for row in range(r - n + 1):
+            for col in range(c - n + 1):
+                lines.append([(row + k, col + k) for k in range(n)])
+        # Diagonal up-right
+        for row in range(n - 1, r):
+            for col in range(c - n + 1):
+                lines.append([(row - k, col + k) for k in range(n)])
+        return lines
+
+    def _legal_mask(self) -> np.ndarray:
+        """
+        Fast legal action mask: top cell empty => legal.
+        """
+        return (self.board[0] == 0).astype(np.int8)
