@@ -248,7 +248,7 @@ def get_opponent(kind: str, model_path: Optional[str] = None, device: str = "cpu
         return RandomOpponent()
     if kind == "heuristic":
         return HeuristicOpponent()
-    if kind in ("ppo", "ppo_pool", "ppo_dense", 'ppo_connect4_8020_dense'):
+    if kind in ("ppo", "ppo_pool", "ppo_dense", 'ppo_connect4_8020_dense', 'ppo_new'):
         if not model_path:
             raise ValueError("model_path required for PPO opponent")
         return ManualPPOOpponent(model_path=model_path, device=device)
