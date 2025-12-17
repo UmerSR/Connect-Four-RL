@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Optional
 
 import numpy as np
+import copy
 
 from envs.connect_four_env import ConnectFourEnv
 from agents.simple_agents import RandomAgent, HeuristicAgent
@@ -21,6 +22,7 @@ except Exception:  # pragma: no cover - optional dependency
 
 try:
     import torch.nn as nn
+    from torch.distributions.categorical import Categorical
 except Exception:
     pass
 
@@ -240,24 +242,114 @@ class ReinforceOpponent(BaseOpponent):
             logits = logits.masked_fill(mask_t == 0, -1e9)
             action = torch.argmax(logits, dim=1).item()
         return int(action)
+    
+class GuidedOpponent(BaseOpponent):
+    """
+    A wrapper that performs 1-ply lookahead (Win/Block) before deferring to
+    the underlying RL policy.
+    """
+    def __init__(self, underlying_opponent: BaseOpponent, env_sim: ConnectFourEnv):
+        self.underlying_opponent = underlying_opponent
+        
+        # Create an internal, lightweight copy of the environment for simulation
+        # This is CRUCIAL for the lookahead check.
+        self.env_sim = env_sim
+        self.name = f"GUIDED({underlying_opponent.name if hasattr(underlying_opponent, 'name') else underlying_opponent.__class__.__name__})"
+
+    def _lookahead_check(self, env: ConnectFourEnv) -> Optional[int]:
+        """
+        Check for immediate Win (1) or Block (2) moves.
+        Returns: Winning/Blocking column index (int) or None.
+        """
+        # 1. Sync internal simulation environment with the current game state
+        self.env_sim.board = copy.deepcopy(env.board)
+        self.env_sim.current_player = env.current_player
+        
+        # Get legal moves once
+        legal_mask = self.env_sim._legal_mask()
+        valid_cols = np.flatnonzero(legal_mask)
+        
+        current_piece = self.env_sim.current_player + 1
+        opp_piece = 2 if current_piece == 1 else 1
+        
+        # --- 1. Check for immediate Win (My Turn) ---
+        for col in valid_cols:
+            row = self.env_sim._get_drop_row(col)
+            
+            # Simulate my move
+            self.env_sim.board[row, col] = current_piece
+            if self.env_sim._check_winner(current_piece):
+                self.env_sim.board[row, col] = 0 # Undo
+                return col # Immediate Win
+            self.env_sim.board[row, col] = 0 # Undo
+
+        # --- 2. Check for immediate Block (Opponent's Win) ---
+        for col in valid_cols:
+            row = self.env_sim._get_drop_row(col)
+            
+            # Simulate opponent's potential winning move
+            self.env_sim.board[row, col] = opp_piece
+            if self.env_sim._check_winner(opp_piece):
+                self.env_sim.board[row, col] = 0 # Undo
+                return col # Immediate Block
+            self.env_sim.board[row, col] = 0 # Undo
+
+        return None # No critical move found
+
+    def select_action(self, env: ConnectFourEnv) -> int:
+        """
+        Decision Hierarchy: Win > Block > RL Policy.
+        """
+        
+        # 1. Lookahead Check
+        critical_action = self._lookahead_check(env)
+        
+        if critical_action is not None:
+            return critical_action
+        else:
+            # 2. Defer to RL Policy
+            return self.underlying_opponent.select_action(env)
 
 
 def get_opponent(kind: str, model_path: Optional[str] = None, device: str = "cpu") -> BaseOpponent:
-    kind = kind.lower()
-    if kind == "random":
-        return RandomOpponent()
-    if kind == "heuristic":
-        return HeuristicOpponent()
-    if kind in ("ppo", "ppo_pool", "ppo_dense"):
+    # kind = kind.lower()
+    
+    kind_lower = kind.lower()
+    
+    # Check for the GUIDED prefix
+    is_guided = kind_lower.startswith("guided_")
+    if is_guided:
+        # Extract the base kind (e.g., 'ppo' from 'guided_ppo')
+        base_kind = kind_lower[7:] 
+    else:
+        base_kind = kind_lower
+        
+    if base_kind == "random":
+        base_opponent = RandomOpponent()
+    elif base_kind == "heuristic":
+        base_opponent = HeuristicOpponent()
+    elif base_kind in ("ppo", "ppo_pool", "ppo_dense", "ppo_connect4_8020_dense", "ppo_new"):
         if not model_path:
             raise ValueError("model_path required for PPO opponent")
-        return ManualPPOOpponent(model_path=model_path, device=device)
-    if kind == "dqn":
+        base_opponent = ManualPPOOpponent(model_path=model_path, device=device)
+    elif base_kind == "dqn":
         if not model_path:
             raise ValueError("model_path required for DQN opponent")
-        return DQNOpponent(model_path=model_path, device=device)
-    if kind in ("reinforce", "reinforce_ts", "reinforce_manual", "reinforce_tianshou"):
+        base_opponent = DQNOpponent(model_path=model_path, device=device)
+    elif base_kind in ("reinforce", "reinforce_ts", "reinforce_manual", "reinforce_tianshou"):
         if not model_path:
             raise ValueError("model_path required for REINFORCE opponent")
-        return ReinforceOpponent(model_path=model_path, device=device)
-    raise ValueError(f"Unknown opponent type: {kind}")
+        base_opponent = ReinforceOpponent(model_path=model_path, device=device)
+    else:
+        raise ValueError(f"Unknown opponent type: {base_kind}")
+
+
+    if is_guided:
+        # Create a fresh Env instance for the Guided Agent's lookahead sim
+        env_sim = ConnectFourEnv()
+        return GuidedOpponent(
+            underlying_opponent=base_opponent, 
+            env_sim=env_sim
+        ) 
+        
+    return base_opponent
