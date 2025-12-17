@@ -248,12 +248,12 @@ class GuidedOpponent(BaseOpponent):
     A wrapper that performs 1-ply lookahead (Win/Block) before deferring to
     the underlying RL policy.
     """
-    def __init__(self, underlying_opponent: BaseOpponent):
+    def __init__(self, underlying_opponent: BaseOpponent, env_sim: ConnectFourEnv):
         self.underlying_opponent = underlying_opponent
         
         # Create an internal, lightweight copy of the environment for simulation
         # This is CRUCIAL for the lookahead check.
-        self.env_sim = ConnectFourEnv() 
+        self.env_sim = env_sim
         self.name = f"GUIDED({underlying_opponent.name if hasattr(underlying_opponent, 'name') else underlying_opponent.__class__.__name__})"
 
     def _lookahead_check(self, env: ConnectFourEnv) -> Optional[int]:
@@ -346,7 +346,7 @@ def get_opponent(kind: str, model_path: Optional[str] = None, device: str = "cpu
 
     if is_guided:
         # Create a fresh Env instance for the Guided Agent's lookahead sim
-        # env_sim = ConnectFourEnv()
-        return GuidedOpponent(base_opponent) 
+        env_sim = ConnectFourEnv()
+        return GuidedOpponent(base_opponent, env_sim) 
         
     return base_opponent
