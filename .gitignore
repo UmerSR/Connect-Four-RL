@@ -11,3 +11,9 @@ venv/
 .vscode/
 .idea/
 Thumbs.db
+
+dqn_connect4_logs/
+mcts/
+
+patch_features.py
+run_dqn_smoke.py
