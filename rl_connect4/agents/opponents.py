@@ -346,7 +346,7 @@ def get_opponent(kind: str, model_path: Optional[str] = None, device: str = "cpu
 
     if is_guided:
         # Create a fresh Env instance for the Guided Agent's lookahead sim
-        env_sim = ConnectFourEnv()
-        return GuidedOpponent(base_opponent, env_sim) 
+        # env_sim = ConnectFourEnv()
+        return GuidedOpponent(base_opponent) 
         
     return base_opponent
