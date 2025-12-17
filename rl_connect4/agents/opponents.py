@@ -243,7 +243,7 @@ class ReinforceOpponent(BaseOpponent):
             action = torch.argmax(logits, dim=1).item()
         return int(action)
     
-class GuidedOpponent(BaseOpponent):
+class onlineOpponent(BaseOpponent):
     """
     A wrapper that performs 1-ply lookahead (Win/Block) before deferring to
     the underlying RL policy.
@@ -254,7 +254,7 @@ class GuidedOpponent(BaseOpponent):
         # Create an internal, lightweight copy of the environment for simulation
         # This is CRUCIAL for the lookahead check.
         self.env_sim = env_sim
-        self.name = f"GUIDED({underlying_opponent.name if hasattr(underlying_opponent, 'name') else underlying_opponent.__class__.__name__})"
+        self.name = f"online({underlying_opponent.name if hasattr(underlying_opponent, 'name') else underlying_opponent.__class__.__name__})"
 
     def _lookahead_check(self, env: ConnectFourEnv) -> Optional[int]:
         """
@@ -316,10 +316,10 @@ def get_opponent(kind: str, model_path: Optional[str] = None, device: str = "cpu
     
     kind_lower = kind.lower()
     
-    # Check for the GUIDED prefix
-    is_guided = kind_lower.startswith("guided_")
-    if is_guided:
-        # Extract the base kind (e.g., 'ppo' from 'guided_ppo')
+    # Check for the online prefix
+    is_online = kind_lower.startswith("online_")
+    if is_online:
+        # Extract the base kind (e.g., 'ppo' from 'online_ppo')
         base_kind = kind_lower[7:] 
     else:
         base_kind = kind_lower
@@ -344,10 +344,10 @@ def get_opponent(kind: str, model_path: Optional[str] = None, device: str = "cpu
         raise ValueError(f"Unknown opponent type: {base_kind}")
 
 
-    if is_guided:
-        # Create a fresh Env instance for the Guided Agent's lookahead sim
+    if is_online:
+        # Create a fresh Env instance for the online Agent's lookahead sim
         env_sim = ConnectFourEnv()
-        return GuidedOpponent(
+        return onlineOpponent(
             underlying_opponent=base_opponent, 
             env_sim=env_sim
         ) 
