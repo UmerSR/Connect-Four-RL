@@ -1,17 +1,19 @@
 # Connect Four RL Experiments
 
-End-to-end Connect Four self-play experiments built around the `rl_connect4` environment, with PPO and DQN training notebooks plus saved checkpoints.
+End-to-end Connect Four self-play experiments using the custom `rl_connect4` environment, with PPO, DQN, and REINFORCE agents, comparison notebooks, and a playable GUI.
 
 ## Repository Layout
-- `rl_connect4/` – environment, agents, training scripts, and tests.
+- `rl_connect4/` — environment, agents (including guided/online modes), GUI (`python rl_connect4/main.py`), and utilities.
 - `notebooks/`
-  - `ppo/` – PPO training variants (`ppo.ipynb`, `ppo_dense.ipynb`, `ppo_pool.ipynb`).
-  - `dqn/` – DQN notebooks (`dqn.ipynb` clean run, `dqn_run_outputs.ipynb` with executed cells/outputs).
+  - `ppo/` — PPO training variants (`ppo.ipynb`, `ppo_dense.ipynb`, `ppo_pool.ipynb`).
+  - `dqn/` — DQN notebooks (`dqn.ipynb` clean run, `dqn_run_outputs.ipynb` executed snapshot).
+  - `reinforce/` — REINFORCE notebooks (manual and Tianshou variants).
+  - `analysis/` — head-to-head and meta-analysis notebooks.
 - `artifacts/`
-  - `ppo/` – saved PPO weights (`ppo.pth`, `ppo_dense.pth`, `ppo_pool.pth`).
-  - `dqn/` – saved DQN checkpoints (`dqn_connect4_selfplay.zip`, `dqn_connect4.pth`) and run outputs (`outputs.zip`).
-- `docs/` – project documents and checkpoint report.
-- `.venv/` – local virtual environment (ignored).
+  - `ppo/` — PPO weights (`ppo.pth`, `ppo_dense.pth`, `ppo_pool.pth`).
+  - `dqn/` — DQN checkpoints (`dqn_connect4_selfplay.zip`, `dqn_connect4.pth`) and outputs.
+  - `reinforce_manual/`, `reinforce_tianshou/` — REINFORCE weights.
+- `docs/` — project documents and checkpoint reports.
 
 ## Quickstart
 ```bash
@@ -22,10 +24,11 @@ python -m pip install -r rl_connect4/requirements.txt
 ```
 
 ## Running
-- **Environment & CLI/GUI**: `python rl_connect4/main.py`
-- **Training scripts**: `python -m training.ppo` (see `rl_connect4/training/` for options)
-- **Notebooks**: open files under `notebooks/` in Jupyter/Colab; each notebook handles its own repo checkout and dependencies.
+- **GUI / play**: `python rl_connect4/main.py` (Select opponent agent and turn, online/offline toggles guided opponents).
+- **Agent-vs-Agent simulator**: `python rl_connect4/simulation.py` (animates matches between two selected agents with start/pause/reset and speed control).
+- **Training scripts**: see `rl_connect4/training/` (e.g., `python -m training.ppo`).
+- **Notebooks**: open under `notebooks/` in Jupyter/Colab; each handles its own setup.
 
 ## Models & Reports
-- Trained weights live in `artifacts/ppo` and `artifacts/dqn`.
-- Documents (plan/report) are in `docs/`.
+- Trained weights live under `artifacts/` as above.
+- Documents and reports are in `docs/`.
